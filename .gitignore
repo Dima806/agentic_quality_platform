@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+.llm/
+.agents/
+agent/
+.claude/skills/
+
+# AQP run evidence (streamed to disk per run; never committed)
+artifacts/

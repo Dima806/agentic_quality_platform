@@ -1,0 +1,129 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentic-quality-platform"
+version = "0.1.0"
+description = "An agentic quality platform that runs plain-language Gherkin feature files as live browser tests — no step definitions or selectors."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Dmytro Iakubovskyi" }]
+keywords = ["gherkin", "e2e", "testing", "agent", "llm", "playwright", "mcp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+]
+
+# Runtime dependencies. The model is reached over the Claude Platform API; the
+# browser is driven only through the Playwright MCP server (see CLAUDE.md).
+dependencies = [
+    "anthropic>=0.40",       # Claude Platform API (Messages API, tool use)
+    "mcp>=1.2",              # Model Context Protocol client (stdio transport)
+    "pytest-bdd>=7.1",       # Gherkin validation / feature collection
+    "click>=8.1",            # `aqp run <path>` CLI
+    "pydantic>=2.6",         # typed records (Step, StepResult, reports)
+    "rich>=13.7",            # readable console output / summaries
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",  # the MCP client is async
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "import-linter>=2.1",    # enforces the selector/browser-client boundary
+]
+
+[project.scripts]
+aqp = "aqp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Dima806/agentic_quality_platform"
+"Reference implementation" = "https://github.com/Dima806/agentic_e2e-testing"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aqp"]
+
+# --------------------------------------------------------------------------- #
+# Tooling
+# --------------------------------------------------------------------------- #
+
+[tool.ruff]
+src = ["src", "tests"]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle + pyflakes
+    "I",             # isort
+    "UP",            # pyupgrade
+    "B",             # flake8-bugbear
+    "SIM",           # flake8-simplify
+    "TID",           # flake8-tidy-imports (banned-api lives here)
+]
+
+# Golden rule #2: selectors / the raw browser driver live ONLY in aqp.browser.
+# Importing playwright anywhere else is a lint error (TID251).
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"playwright".msg = "Only aqp.browser may touch the browser driver — drive the browser through the MCP client; address elements by snapshot ref, never a selector."
+
+[tool.ruff.lint.per-file-ignores]
+# The browser client is the one place allowed to touch the driver directly.
+"src/aqp/browser/**" = ["TID251"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["aqp"]
+mypy_path = "src"
+strict = true
+warn_unused_configs = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+branch = true
+source = ["src/aqp"]
+
+# --------------------------------------------------------------------------- #
+# Architecture contracts. The selector-boundary rule itself is a string-level
+# concern enforced by the ruff `playwright` ban + tests/test_architecture.py;
+# these contracts keep the module graph honest (defense-in-depth):
+#   - the browser client stays a thin leaf (no upward dependencies),
+#   - feature loading/parsing stays pure (no downstream dependencies).
+# --------------------------------------------------------------------------- #
+[tool.importlinter]
+root_package = "aqp"
+
+[[tool.importlinter.contracts]]
+name = "Browser client is a leaf"
+type = "forbidden"
+source_modules = ["aqp.browser"]
+forbidden_modules = ["aqp.agents", "aqp.assertions", "aqp.features", "aqp.runner", "aqp.cli"]
+
+[[tool.importlinter.contracts]]
+name = "Feature loading/parsing is pure"
+type = "forbidden"
+source_modules = ["aqp.features"]
+forbidden_modules = ["aqp.browser", "aqp.agents", "aqp.assertions", "aqp.runner"]
+
+# --------------------------------------------------------------------------- #
+# Project config defaults (read by src/aqp/config.py; override via env or aqp.toml).
+# --------------------------------------------------------------------------- #
+[tool.aqp]
+executor_model = "claude-sonnet-5-5"
+evaluator_model = "claude-haiku-5-5"
+max_attempts = 2
+mcp_endpoint = "stdio://@playwright/mcp"
+max_parallel = 2
+artifacts_dir = "artifacts"
